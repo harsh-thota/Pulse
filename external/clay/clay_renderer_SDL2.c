@@ -1,9 +1,8 @@
 #include "clay.h"
 #include <SDL.h>
-#include <SDL_ttf.h>
-#include <SDL_image.h>
 #include <stdio.h>
 #include <math.h>
+#include "sdl2_font.hpp"
 
 #ifndef M_PI
     #define M_PI 3.14159
@@ -11,12 +10,9 @@
 
 #define CLAY_COLOR_TO_SDL_COLOR_ARGS(color) color.r, color.g, color.b, color.a
 
-typedef struct
-{
-    uint32_t fontId;
-    TTF_Font *font;
-} SDL2_Font;
 
+// Function declaration for proper C++ compatibility
+static Clay_Dimensions SDL2_MeasureText(Clay_StringSlice text, Clay_TextElementConfig *config, void *userData);
 
 static Clay_Dimensions SDL2_MeasureText(Clay_StringSlice text, Clay_TextElementConfig *config, void *userData)
 {
@@ -33,10 +29,10 @@ static Clay_Dimensions SDL2_MeasureText(Clay_StringSlice text, Clay_TextElementC
         exit(1);
     }
     free(chars);
-    return (Clay_Dimensions) {
-            .width = (float)width,
-            .height = (float)height,
-    };
+    Clay_Dimensions dimensions = {};
+    dimensions.width = (float)width;
+    dimensions.height = (float)height;
+    return dimensions;
 }
 
 /* Global for convenience. Even in 4K this is enough for smooth curves (low radius or rect size coupled with
@@ -45,12 +41,11 @@ static int NUM_CIRCLE_SEGMENTS = 16;
 
 //all rendering is performed by a single SDL call, avoiding multiple RenderRect + plumbing choice for circles.
 static void SDL_RenderFillRoundedRect(SDL_Renderer* renderer, const SDL_FRect rect, const float cornerRadius, const Clay_Color _color) {
-    const SDL_Color color = (SDL_Color) {
-            .r = (Uint8)_color.r,
-            .g = (Uint8)_color.g,
-            .b = (Uint8)_color.b,
-            .a = (Uint8)_color.a,
-    };
+    SDL_Color color = {};
+    color.r = (Uint8)_color.r;
+    color.g = (Uint8)_color.g;
+    color.b = (Uint8)_color.b;
+    color.a = (Uint8)_color.a;
 
     int indexCount = 0, vertexCount = 0;
 
@@ -63,10 +58,37 @@ static void SDL_RenderFillRoundedRect(SDL_Renderer* renderer, const SDL_FRect re
     int indices[512];
 
     //define center rectangle
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + clampedRadius, rect.y + clampedRadius}, color, {0, 0} }; //0 center TL
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + rect.w - clampedRadius, rect.y + clampedRadius}, color, {1, 0} }; //1 center TR
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + rect.w - clampedRadius, rect.y + rect.h - clampedRadius}, color, {1, 1} }; //2 center BR
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + clampedRadius, rect.y + rect.h - clampedRadius}, color, {0, 1} }; //3 center BL
+    SDL_Vertex v0 = {};
+    v0.position.x = rect.x + clampedRadius;
+    v0.position.y = rect.y + clampedRadius;
+    v0.color = color;
+    v0.tex_coord.x = 0;
+    v0.tex_coord.y = 0;
+    vertices[vertexCount++] = v0; //0 center TL
+
+    SDL_Vertex v1 = {};
+    v1.position.x = rect.x + rect.w - clampedRadius;
+    v1.position.y = rect.y + clampedRadius;
+    v1.color = color;
+    v1.tex_coord.x = 1;
+    v1.tex_coord.y = 0;
+    vertices[vertexCount++] = v1; //1 center TR
+
+    SDL_Vertex v2 = {};
+    v2.position.x = rect.x + rect.w - clampedRadius;
+    v2.position.y = rect.y + rect.h - clampedRadius;
+    v2.color = color;
+    v2.tex_coord.x = 1;
+    v2.tex_coord.y = 1;
+    vertices[vertexCount++] = v2; //2 center BR
+
+    SDL_Vertex v3 = {};
+    v3.position.x = rect.x + clampedRadius;
+    v3.position.y = rect.y + rect.h - clampedRadius;
+    v3.color = color;
+    v3.tex_coord.x = 0;
+    v3.tex_coord.y = 1;
+    vertices[vertexCount++] = v3; //3 center BL
 
     indices[indexCount++] = 0;
     indices[indexCount++] = 1;
@@ -92,8 +114,21 @@ static void SDL_RenderFillRoundedRect(SDL_Renderer* renderer, const SDL_FRect re
             default: return;
             }
 
-            vertices[vertexCount++] = (SDL_Vertex){ {cx + SDL_cosf(angle1) * clampedRadius * signX, cy + SDL_sinf(angle1) * clampedRadius * signY}, color, {0, 0} };
-            vertices[vertexCount++] = (SDL_Vertex){ {cx + SDL_cosf(angle2) * clampedRadius * signX, cy + SDL_sinf(angle2) * clampedRadius * signY}, color, {0, 0} };
+            SDL_Vertex vCorner1 = {};
+            vCorner1.position.x = cx + SDL_cosf(angle1) * clampedRadius * signX;
+            vCorner1.position.y = cy + SDL_sinf(angle1) * clampedRadius * signY;
+            vCorner1.color = color;
+            vCorner1.tex_coord.x = 0;
+            vCorner1.tex_coord.y = 0;
+            vertices[vertexCount++] = vCorner1;
+
+            SDL_Vertex vCorner2 = {};
+            vCorner2.position.x = cx + SDL_cosf(angle2) * clampedRadius * signX;
+            vCorner2.position.y = cy + SDL_sinf(angle2) * clampedRadius * signY;
+            vCorner2.color = color;
+            vCorner2.tex_coord.x = 0;
+            vCorner2.tex_coord.y = 0;
+            vertices[vertexCount++] = vCorner2;
 
             indices[indexCount++] = j;  // Connect to corresponding central rectangle vertex
             indices[indexCount++] = vertexCount - 2;
@@ -103,8 +138,21 @@ static void SDL_RenderFillRoundedRect(SDL_Renderer* renderer, const SDL_FRect re
 
     //Define edge rectangles
     // Top edge
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + clampedRadius, rect.y}, color, {0, 0} }; //TL
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + rect.w - clampedRadius, rect.y}, color, {1, 0} }; //TR
+    SDL_Vertex vTopL = {};
+    vTopL.position.x = rect.x + clampedRadius;
+    vTopL.position.y = rect.y;
+    vTopL.color = color;
+    vTopL.tex_coord.x = 0;
+    vTopL.tex_coord.y = 0;
+    vertices[vertexCount++] = vTopL; //TL
+
+    SDL_Vertex vTopR = {};
+    vTopR.position.x = rect.x + rect.w - clampedRadius;
+    vTopR.position.y = rect.y;
+    vTopR.color = color;
+    vTopR.tex_coord.x = 1;
+    vTopR.tex_coord.y = 0;
+    vertices[vertexCount++] = vTopR; //TR
 
     indices[indexCount++] = 0;
     indices[indexCount++] = vertexCount - 2; //TL
@@ -112,9 +160,23 @@ static void SDL_RenderFillRoundedRect(SDL_Renderer* renderer, const SDL_FRect re
     indices[indexCount++] = 1;
     indices[indexCount++] = 0;
     indices[indexCount++] = vertexCount - 1; //TR
+    
     // Right edge
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + rect.w, rect.y + clampedRadius}, color, {1, 0} }; //RT
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + rect.w, rect.y + rect.h - clampedRadius}, color, {1, 1} }; //RB
+    SDL_Vertex vRightT = {};
+    vRightT.position.x = rect.x + rect.w;
+    vRightT.position.y = rect.y + clampedRadius;
+    vRightT.color = color;
+    vRightT.tex_coord.x = 1;
+    vRightT.tex_coord.y = 0;
+    vertices[vertexCount++] = vRightT; //RT
+
+    SDL_Vertex vRightB = {};
+    vRightB.position.x = rect.x + rect.w;
+    vRightB.position.y = rect.y + rect.h - clampedRadius;
+    vRightB.color = color;
+    vRightB.tex_coord.x = 1;
+    vRightB.tex_coord.y = 1;
+    vertices[vertexCount++] = vRightB; //RB
 
     indices[indexCount++] = 1;
     indices[indexCount++] = vertexCount - 2; //RT
@@ -122,9 +184,23 @@ static void SDL_RenderFillRoundedRect(SDL_Renderer* renderer, const SDL_FRect re
     indices[indexCount++] = 2;
     indices[indexCount++] = 1;
     indices[indexCount++] = vertexCount - 1; //RB
+    
     // Bottom edge
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + rect.w - clampedRadius, rect.y + rect.h}, color, {1, 1} }; //BR
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x + clampedRadius, rect.y + rect.h}, color, {0, 1} }; //BL
+    SDL_Vertex vBottomR = {};
+    vBottomR.position.x = rect.x + rect.w - clampedRadius;
+    vBottomR.position.y = rect.y + rect.h;
+    vBottomR.color = color;
+    vBottomR.tex_coord.x = 1;
+    vBottomR.tex_coord.y = 1;
+    vertices[vertexCount++] = vBottomR; //BR
+
+    SDL_Vertex vBottomL = {};
+    vBottomL.position.x = rect.x + clampedRadius;
+    vBottomL.position.y = rect.y + rect.h;
+    vBottomL.color = color;
+    vBottomL.tex_coord.x = 0;
+    vBottomL.tex_coord.y = 1;
+    vertices[vertexCount++] = vBottomL; //BL
 
     indices[indexCount++] = 2;
     indices[indexCount++] = vertexCount - 2; //BR
@@ -132,9 +208,23 @@ static void SDL_RenderFillRoundedRect(SDL_Renderer* renderer, const SDL_FRect re
     indices[indexCount++] = 3;
     indices[indexCount++] = 2;
     indices[indexCount++] = vertexCount - 1; //BL
+    
     // Left edge
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x, rect.y + rect.h - clampedRadius}, color, {0, 1} }; //LB
-    vertices[vertexCount++] = (SDL_Vertex){ {rect.x, rect.y + clampedRadius}, color, {0, 0} }; //LT
+    SDL_Vertex vLeftB = {};
+    vLeftB.position.x = rect.x;
+    vLeftB.position.y = rect.y + rect.h - clampedRadius;
+    vLeftB.color = color;
+    vLeftB.tex_coord.x = 0;
+    vLeftB.tex_coord.y = 1;
+    vertices[vertexCount++] = vLeftB; //LB
+
+    SDL_Vertex vLeftT = {};
+    vLeftT.position.x = rect.x;
+    vLeftT.position.y = rect.y + clampedRadius;
+    vLeftT.color = color;
+    vLeftT.tex_coord.x = 0;
+    vLeftT.tex_coord.y = 0;
+    vertices[vertexCount++] = vLeftT; //LT
 
     indices[indexCount++] = 3;
     indices[indexCount++] = vertexCount - 2; //LB
@@ -158,12 +248,11 @@ static void SDL_RenderCornerBorder(SDL_Renderer *renderer, Clay_BoundingBox* bou
     //The final two vertices are the missing vertices for the first and last inner triangles (if needed)
     //Everything is in clockwise order (CW).
     /////////////////////////////////
-    const SDL_Color color = (SDL_Color) {
-        .r = (Uint8)_color.r,
-        .g = (Uint8)_color.g,
-        .b = (Uint8)_color.b,
-        .a = (Uint8)_color.a,
-    };
+    SDL_Color color = {};
+    color.r = (Uint8)_color.r;
+    color.g = (Uint8)_color.g;
+    color.b = (Uint8)_color.b;
+    color.a = (Uint8)_color.a;
 
     float centerX, centerY, outerRadius, clampedRadius, startAngle, borderWidth;
     const float maxRadius = SDL_min(boundingBox->width, boundingBox->height) / 2.0f;
@@ -216,16 +305,37 @@ static void SDL_RenderCornerBorder(SDL_Renderer *renderer, Clay_BoundingBox* bou
         float angle3 =  startAngle + (i+1)*angleStep; // second-outer vertex angle
 
         if( i == 0){ //first outer triangle
-            vertices[vertexCount++] = (SDL_Vertex){ {centerX + SDL_cosf(angle1) * outerRadius, centerY + SDL_sinf(angle1) * outerRadius}, color, {0, 0} }; //vertex index = 0
+            SDL_Vertex vFirst = {};
+            vFirst.position.x = centerX + SDL_cosf(angle1) * outerRadius;
+            vFirst.position.y = centerY + SDL_sinf(angle1) * outerRadius;
+            vFirst.color = color;
+            vFirst.tex_coord.x = 0;
+            vFirst.tex_coord.y = 0;
+            vertices[vertexCount++] = vFirst; //vertex index = 0
         }
         indices[indexCount++] = vertexCount - 1; //will be second-outer vertex of last outer triangle if not first outer triangle.
 
-        vertices[vertexCount++] = (innerRadius > 0)?
-            (SDL_Vertex){ {centerX + SDL_cosf(angle2) * (innerRadius), centerY + SDL_sinf(angle2) * (innerRadius)}, color, {0, 0}}:
-            (SDL_Vertex){ {centerX, centerY }, color, {0, 0}};
+        SDL_Vertex vMiddle = {};
+        if (innerRadius > 0) {
+            vMiddle.position.x = centerX + SDL_cosf(angle2) * (innerRadius);
+            vMiddle.position.y = centerY + SDL_sinf(angle2) * (innerRadius);
+        } else {
+            vMiddle.position.x = centerX;
+            vMiddle.position.y = centerY;
+        }
+        vMiddle.color = color;
+        vMiddle.tex_coord.x = 0;
+        vMiddle.tex_coord.y = 0;
+        vertices[vertexCount++] = vMiddle;
         indices[indexCount++] = vertexCount - 1;
 
-        vertices[vertexCount++] = (SDL_Vertex){ {centerX + SDL_cosf(angle3) * outerRadius, centerY + SDL_sinf(angle3) * outerRadius}, color, {0, 0} };
+        SDL_Vertex vOuter = {};
+        vOuter.position.x = centerX + SDL_cosf(angle3) * outerRadius;
+        vOuter.position.y = centerY + SDL_sinf(angle3) * outerRadius;
+        vOuter.color = color;
+        vOuter.tex_coord.x = 0;
+        vOuter.tex_coord.y = 0;
+        vertices[vertexCount++] = vOuter;
         indices[indexCount++] = vertexCount - 1;
     }
 
@@ -249,13 +359,25 @@ static void SDL_RenderCornerBorder(SDL_Renderer *renderer, Clay_BoundingBox* bou
         //last inner triangle
         indices[indexCount++] = vertexCount - 2; //inner-middle vertex of last outer triangle
         indices[indexCount++] = vertexCount - 1; //second-outer vertex of last outer triangle
-        vertices[vertexCount++] = (SDL_Vertex){ {centerX + SDL_cosf(endAngle) * innerRadius, centerY + SDL_sinf(endAngle) * innerRadius}, color, {0, 0} }; //missing vertex
+        SDL_Vertex vEndInner = {};
+        vEndInner.position.x = centerX + SDL_cosf(endAngle) * innerRadius;
+        vEndInner.position.y = centerY + SDL_sinf(endAngle) * innerRadius;
+        vEndInner.color = color;
+        vEndInner.tex_coord.x = 0;
+        vEndInner.tex_coord.y = 0;
+        vertices[vertexCount++] = vEndInner; //missing vertex
         indices[indexCount++] = vertexCount - 1; 
         
         // //first inner triangle
         indices[indexCount++] = 0; //first-outer vertex of first outer triangle
         indices[indexCount++] = 1; //inner-middle vertex of first outer triangle
-        vertices[vertexCount++] = (SDL_Vertex){ {centerX + SDL_cosf(startAngle) * innerRadius, centerY + SDL_sinf(startAngle) * innerRadius}, color, {0, 0} }; //missing vertex
+        SDL_Vertex vStartInner = {};
+        vStartInner.position.x = centerX + SDL_cosf(startAngle) * innerRadius;
+        vStartInner.position.y = centerY + SDL_sinf(startAngle) * innerRadius;
+        vStartInner.color = color;
+        vStartInner.tex_coord.x = 0;
+        vStartInner.tex_coord.y = 0;
+        vertices[vertexCount++] = vStartInner; //missing vertex
         indices[indexCount++] = vertexCount - 1; 
     }
 
@@ -276,12 +398,12 @@ static void Clay_SDL2_Render(SDL_Renderer *renderer, Clay_RenderCommandArray ren
                 Clay_RectangleRenderData *config = &renderCommand->renderData.rectangle;
                 Clay_Color color = config->backgroundColor;
                 SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
-                SDL_FRect rect = (SDL_FRect) {
-                        .x = boundingBox.x,
-                        .y = boundingBox.y,
-                        .w = boundingBox.width,
-                        .h = boundingBox.height,
-                };
+                SDL_FRect rect = {};
+                rect.x = boundingBox.x;
+                rect.y = boundingBox.y;
+                rect.w = boundingBox.width;
+                rect.h = boundingBox.height;
+                
                 if (config->cornerRadius.topLeft > 0) {
                     SDL_RenderFillRoundedRect(renderer, rect, config->cornerRadius.topLeft, color);
                 }
@@ -296,20 +418,24 @@ static void Clay_SDL2_Render(SDL_Renderer *renderer, Clay_RenderCommandArray ren
                 memcpy(cloned, config->stringContents.chars, config->stringContents.length);
                 TTF_Font* font = fonts[config->fontId].font;
                 TTF_SetFontSize(font, config->fontSize);
-                SDL_Surface *surface = TTF_RenderUTF8_Blended(font, cloned, (SDL_Color) {
-                        .r = (Uint8)config->textColor.r,
-                        .g = (Uint8)config->textColor.g,
-                        .b = (Uint8)config->textColor.b,
-                        .a = (Uint8)config->textColor.a,
-                });
+                
+                // Create SDL_Color with proper C++ initialization
+                SDL_Color textColor = {};
+                textColor.r = (Uint8)config->textColor.r;
+                textColor.g = (Uint8)config->textColor.g;
+                textColor.b = (Uint8)config->textColor.b;
+                textColor.a = (Uint8)config->textColor.a;
+                
+                SDL_Surface *surface = TTF_RenderUTF8_Blended(font, cloned, textColor);
                 SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
 
-                SDL_Rect destination = (SDL_Rect){
-                        .x = boundingBox.x,
-                        .y = boundingBox.y,
-                        .w = boundingBox.width,
-                        .h = boundingBox.height,
-                };
+                // Create SDL_Rect with proper C++ initialization
+                SDL_Rect destination = {};
+                destination.x = (int)boundingBox.x;
+                destination.y = (int)boundingBox.y;
+                destination.w = (int)boundingBox.width;
+                destination.h = (int)boundingBox.height;
+                
                 SDL_RenderCopy(renderer, texture, NULL, &destination);
 
                 SDL_DestroyTexture(texture);
@@ -318,12 +444,12 @@ static void Clay_SDL2_Render(SDL_Renderer *renderer, Clay_RenderCommandArray ren
                 break;
             }
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START: {
-                currentClippingRectangle = (SDL_Rect) {
-                        .x = boundingBox.x,
-                        .y = boundingBox.y,
-                        .w = boundingBox.width,
-                        .h = boundingBox.height,
-                };
+                // Create SDL_Rect with proper C++ initialization
+                currentClippingRectangle.x = (int)boundingBox.x;
+                currentClippingRectangle.y = (int)boundingBox.y;
+                currentClippingRectangle.w = (int)boundingBox.width;
+                currentClippingRectangle.h = (int)boundingBox.height;
+                
                 SDL_RenderSetClipRect(renderer, &currentClippingRectangle);
                 break;
             }
@@ -334,14 +460,15 @@ static void Clay_SDL2_Render(SDL_Renderer *renderer, Clay_RenderCommandArray ren
             case CLAY_RENDER_COMMAND_TYPE_IMAGE: {
                 Clay_ImageRenderData *config = &renderCommand->renderData.image;
 
-                SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, config->imageData);
+                // Cast void* to SDL_Surface* - assuming imageData is actually an SDL_Surface*
+                SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, (SDL_Surface*)config->imageData);
 
-                SDL_Rect destination = (SDL_Rect){
-                    .x = boundingBox.x,
-                    .y = boundingBox.y,
-                    .w = boundingBox.width,
-                    .h = boundingBox.height,
-                };
+                // Create SDL_Rect with proper C++ initialization
+                SDL_Rect destination = {};
+                destination.x = (int)boundingBox.x;
+                destination.y = (int)boundingBox.y;
+                destination.w = (int)boundingBox.width;
+                destination.h = (int)boundingBox.height;
 
                 SDL_RenderCopy(renderer, texture, NULL, &destination);
 
@@ -358,47 +485,44 @@ static void Clay_SDL2_Render(SDL_Renderer *renderer, Clay_RenderCommandArray ren
                     if (config->width.left > 0) {
                         const float clampedRadiusTop = SDL_min((float)config->cornerRadius.topLeft, maxRadius);
                         const float clampedRadiusBottom = SDL_min((float)config->cornerRadius.bottomLeft, maxRadius);
-                        SDL_FRect rect = { 
-                            boundingBox.x, 
-                            boundingBox.y + clampedRadiusTop, 
-                            (float)config->width.left, 
-                            (float)boundingBox.height - clampedRadiusTop - clampedRadiusBottom
-                        };
+                        SDL_FRect rect = {}; 
+                        rect.x = boundingBox.x;
+                        rect.y = boundingBox.y + clampedRadiusTop;
+                        rect.w = (float)config->width.left;
+                        rect.h = (float)boundingBox.height - clampedRadiusTop - clampedRadiusBottom;
                         SDL_RenderFillRectF(renderer, &rect);
                     }
     
                     if (config->width.right > 0) {
                         const float clampedRadiusTop = SDL_min((float)config->cornerRadius.topRight, maxRadius);
                         const float clampedRadiusBottom = SDL_min((float)config->cornerRadius.bottomRight, maxRadius);
-                        SDL_FRect rect = { 
-                            boundingBox.x + boundingBox.width - config->width.right,
-                            boundingBox.y + clampedRadiusTop,
-                            (float)config->width.right,
-                            (float)boundingBox.height - clampedRadiusTop - clampedRadiusBottom
-                        };
+                        SDL_FRect rect = {}; 
+                        rect.x = boundingBox.x + boundingBox.width - config->width.right;
+                        rect.y = boundingBox.y + clampedRadiusTop;
+                        rect.w = (float)config->width.right;
+                        rect.h = (float)boundingBox.height - clampedRadiusTop - clampedRadiusBottom;
                         SDL_RenderFillRectF(renderer, &rect);
                     }
     
                     if (config->width.top > 0) {
                         const float clampedRadiusLeft = SDL_min((float)config->cornerRadius.topLeft, maxRadius);
                         const float clampedRadiusRight = SDL_min((float)config->cornerRadius.topRight, maxRadius);
-                        SDL_FRect rect = { 
-                            boundingBox.x + clampedRadiusLeft, 
-                            boundingBox.y, 
-                            boundingBox.width - clampedRadiusLeft - clampedRadiusRight, 
-                            (float)config->width.top };
+                        SDL_FRect rect = {}; 
+                        rect.x = boundingBox.x + clampedRadiusLeft;
+                        rect.y = boundingBox.y;
+                        rect.w = boundingBox.width - clampedRadiusLeft - clampedRadiusRight;
+                        rect.h = (float)config->width.top;
                         SDL_RenderFillRectF(renderer, &rect);
                     }
     
                     if (config->width.bottom > 0) {
                         const float clampedRadiusLeft = SDL_min((float)config->cornerRadius.bottomLeft, maxRadius);
                         const float clampedRadiusRight = SDL_min((float)config->cornerRadius.bottomRight, maxRadius);
-                        SDL_FRect rect = { 
-                            boundingBox.x + clampedRadiusLeft, 
-                            boundingBox.y + boundingBox.height - config->width.bottom, 
-                            boundingBox.width - clampedRadiusLeft - clampedRadiusRight, 
-                            (float)config->width.bottom 
-                        };
+                        SDL_FRect rect = {}; 
+                        rect.x = boundingBox.x + clampedRadiusLeft;
+                        rect.y = boundingBox.y + boundingBox.height - config->width.bottom;
+                        rect.w = boundingBox.width - clampedRadiusLeft - clampedRadiusRight;
+                        rect.h = (float)config->width.bottom;
                         SDL_RenderFillRectF(renderer, &rect);
                     }
     

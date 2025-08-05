@@ -1,5 +1,4 @@
-//#include <iostream>
-#include "ui/application.h"
+#include "ui/application.hpp"
 
 int main(int argc, char* argv[])
 {
