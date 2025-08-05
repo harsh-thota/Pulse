@@ -249,7 +249,7 @@ class ClayMan {
         uint32_t framecount = 0;
         std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
 
-        static constexpr size_t maxStringArenaSize = 100000; 
+        static constexpr size_t maxStringArenaSize = 4096; // Reduced from 100KB to 4KB
 
         //Reusable char arena to cache strings for Clay_String conversions
         char stringArena[maxStringArenaSize];

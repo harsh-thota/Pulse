@@ -14,7 +14,10 @@ ClayMan::ClayMan(
     assert(claymaninstancehasbeencreated == false && "Only One Instance of ClayMan Should be Created!");
     if(windowWidth == 0){windowWidth = 1;}
     if(windowHeight == 0){windowHeight = 1;}
-    uint64_t clayRequiredMemory = Clay_MinMemorySize();
+    
+    // MEMORY OPTIMIZATION: Use minimal Clay arena instead of default huge allocation
+    // For a simple text-based UI, we need much less than the default
+    uint64_t clayRequiredMemory = 1024 * 1024 * 8; // 8MB instead of default ~64MB
     Clay_Arena clayMemory = Clay_CreateArenaWithCapacityAndMemory(clayRequiredMemory, malloc(clayRequiredMemory));
 
     Clay_Dimensions dimensions = {};

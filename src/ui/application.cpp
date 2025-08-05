@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdlib>
+#include "clayman.hpp"
 #include "application.hpp"
 #include "clay_renderer_SDL2.c"
 
@@ -10,6 +11,7 @@ void HandleClayErrors(Clay_ErrorData errorData)
 
 bool Application::Initialize()
 {
+	// Initialize SDL with minimal subsystems
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 	{
 		std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError() << "\n";
@@ -23,7 +25,7 @@ bool Application::Initialize()
 		return false;
 	}
 
-	_window = SDL_CreateWindow("Pulse", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1200, 800, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+	_window = SDL_CreateWindow("Pulse", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 	if (!_window)
 	{
 		std::cerr << "Window could not be created! SDL_Error: " << SDL_GetError() << "\n";
@@ -31,7 +33,7 @@ bool Application::Initialize()
 		return false;
 	}
 
-	_renderer = SDL_CreateRenderer(_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+	_renderer = SDL_CreateRenderer(_window, -1, SDL_RENDERER_SOFTWARE);
 	if (!_renderer)
 	{
 		std::cerr << "Renderer could not be created! SDL_Error: " << SDL_GetError() << "\n";
@@ -40,7 +42,7 @@ bool Application::Initialize()
 		return false;
 	}
 
-	_bodyFont = TTF_OpenFont("assets/fonts/Roboto-Regular.ttf", 16);
+	_bodyFont = TTF_OpenFont("assets/fonts/Roboto-Regular.ttf", 12);
 	if (!_bodyFont)
 	{
 		std::cerr << "Failed to load font! TTF_Error: " << TTF_GetError() << "\n";
@@ -53,6 +55,7 @@ bool Application::Initialize()
 	SDL_GetWindowSize(_window, &w, &h);
 	_clayMan = std::make_unique<ClayMan>(w, h, SDL2_MeasureText, _fonts);
 
+	std::cout << "Pulse initialized - optimized for low memory usage\n";
 	return true;
 }
 
