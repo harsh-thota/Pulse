@@ -2,10 +2,12 @@
 #include "sdl2_font.hpp"
 #include "clayman.hpp"
 #include "../monitoring/data_collector.hpp"
+#include "screens/base_screen.hpp"
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 enum class Screen {
 	Performance,
@@ -31,10 +33,10 @@ private:
 	void RenderMainContent();
 	void RenderNavButton(const std::string& label, Screen screen, bool isActive);
 	
-	void RenderPerformanceScreen();
-	void RenderProcessesScreen();
-	void RenderNetworkScreen();
-	void RenderAlertsScreen();
+	//void RenderPerformanceScreen();
+	//void RenderProcessesScreen();
+	//void RenderNetworkScreen();
+	//void RenderAlertsScreen();
 	
 	Screen currentScreen_ = Screen::Performance;
 	void SwitchToScreen(Screen screen);
@@ -45,4 +47,5 @@ private:
 	SDL2_Font fonts_[1];
 	std::unique_ptr<ClayMan> clayMan_;
 	std::unique_ptr<DataCollector> dataCollector_;
+	std::unordered_map<Screen, std::unique_ptr<BaseScreen>> screens_;
 };

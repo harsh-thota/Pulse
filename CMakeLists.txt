@@ -7,18 +7,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # source files
 add_executable(pulse
 	src/main.cpp
-	src/ui/application.hpp 
 	src/ui/application.cpp
 	external/clay/clayman.cpp
-	external/clay/clayman.hpp
-	external/clay/sdl2_font.hpp
-	src/core/ring_buffer.hpp
-	src/core/interfaces/i_system_monitor.hpp
-	src/core/interfaces/i_process_monitor.hpp
-	src/core/interfaces/i_network_monitor.hpp
-	src/platform/windows/windows_system_monitor.hpp
-	src/monitoring/data_collector.cpp
 	src/platform/windows/windows_system_monitor.cpp
+	src/monitoring/data_collector.cpp
+	src/ui/screens/base_screen.cpp
+	src/ui/screens/performance_screen.cpp
+	src/ui/components/graph_component.cpp
+	src/ui/components/ui_card.cpp
+	src/ui/components/text_components.cpp
+	src/ui/components/layout_components.cpp
+	src/ui/components/table_component.cpp
+	src/ui/components/metric_card.cpp
 )
 
 # header files

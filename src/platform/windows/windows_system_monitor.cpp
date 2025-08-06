@@ -5,6 +5,17 @@
 
 WindowsSystemMonitor::WindowsSystemMonitor()
 {
+    cpuUsage_ = 0.0f;
+    totalMemory_ = 0;
+    usedMemory_ = 0;
+    coreCount_ = 0;
+    systemName_ = "Windows";
+    cpuName_ = "Unknown CPU";
+
+    lastCPU_.QuadPart = 0;
+    lastSysCPU_.QuadPart = 0;
+    lastUserCPU_.QuadPart = 0;
+
 	InitializeSystemInfo();
 }
 

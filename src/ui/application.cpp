@@ -1,12 +1,10 @@
 #include "clayman.hpp"
 #include "application.hpp"
 #include "clay_renderer_SDL2.c"
-#include <iomanip>
+#include "screens/performance_screen.hpp"
 #include <iostream>
-#include <cstdlib>
-#include <sstream>
 
-void HandleClayErrors(Clay_ErrorData errorData)
+static void HandleClayErrors(Clay_ErrorData errorData)
 {
 	std::cerr << "[Clay Error]: " << errorData.errorText.chars << "\n";
 }
@@ -59,9 +57,16 @@ bool Application::Initialize()
 	dataCollector_ = std::make_unique<DataCollector>();
 	if (!dataCollector_->Initialize())
 	{
-		std::cerr << "Failed to initialize system monitory\n";
+		std::cerr << "Failed to initialize system monitor\n";
 		return false;
 	}
+
+	// Initialize modular screens
+	screens_[Screen::Performance] = std::make_unique<PerformanceScreen>();
+	// TODO: Add other screens when implemented
+	// screens_[Screen::Processes] = std::make_unique<ProcessesScreen>();
+	// screens_[Screen::Network] = std::make_unique<NetworkScreen>();
+	// screens_[Screen::Alerts] = std::make_unique<AlertsScreen>();
 
 	std::cout << "Pulse Initialized - Optimized for low memory usage\n";
 	return true;
@@ -75,29 +80,44 @@ void Application::Run()
 	while (running)
 	{
 		int mouseX = 0, mouseY = 0;
+		bool mousePressed = false;
 		Clay_Vector2 scroll = {};
+
+		SDL_GetMouseState(&mouseX, &mouseY);
+
 		while (SDL_PollEvent(&event))
 		{
-			if (event.type == SDL_QUIT) running = false;
+			if (event.type == SDL_QUIT) {
+				running = false;
+			}
 			else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED)
 			{
 				int width, height;
 				SDL_GetWindowSize(window_, &width, &height);
-				clayMan_->updateClayState(width, height, 0, 0, 0, 0, 0.16f, false);
+			}
+			else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
+			{
+				mousePressed = true;
+			}
+			else if (event.type == SDL_MOUSEWHEEL)
+			{
+				scroll.y = static_cast<float>(event.wheel.y) * 20.0f;
 			}
 		}
 
+		int width, height;
+		SDL_GetWindowSize(window_, &width, &height);
+		clayMan_->updateClayState(width, height, static_cast<float>(mouseX), static_cast<float>(mouseY),
+			scroll.x, scroll.y, 0.016f, mousePressed);
+
 		Update();
 		Render();
-
 		SDL_Delay(16);
-
 	}
 }
 
 void Application::Update()
 {
-	// Update logic goes here
 	if (dataCollector_)
 	{
 		dataCollector_->Update();
@@ -114,310 +134,124 @@ void Application::Render()
 	Clay_RenderCommandArray clayCommands = clayMan_->endLayout();
 
 	Clay_SDL2_Render(renderer_, clayCommands, fonts_);
-
 	SDL_RenderPresent(renderer_);
 }
 
 void Application::RenderUI()
 {
-	// Main container - full screen
 	Clay_ElementDeclaration rootConfig = {};
 	rootConfig.layout.sizing = clayMan_->expandXY();
 	rootConfig.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
-	
+
 	clayMan_->element(rootConfig, [this]() {
 		RenderSidebar();
 		RenderMainContent();
-	});
+		});
 }
 
 void Application::RenderSidebar()
 {
-	// Sidebar - fixed width, full height, dark background
 	Clay_ElementDeclaration sidebarConfig = {};
 	sidebarConfig.layout.sizing = clayMan_->expandYfixedX(80);
 	sidebarConfig.layout.padding = clayMan_->padAll(8);
 	sidebarConfig.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
 	sidebarConfig.layout.childGap = 8;
-	sidebarConfig.backgroundColor = { 15, 15, 15, 255 }; // Dark sidebar
-	
+	sidebarConfig.backgroundColor = { 15, 15, 15, 255 };
+
 	clayMan_->element(sidebarConfig, [this]() {
-		// Pulse Logo/Title
+		// Pulse Logo
 		Clay_ElementDeclaration logoConfig = {};
 		logoConfig.layout.sizing = clayMan_->expandXfixedY(50);
 		logoConfig.layout.childAlignment = clayMan_->centerXY();
-		
+
 		clayMan_->element(logoConfig, [this]() {
 			Clay_TextElementConfig logoTextConfig = {};
-			logoTextConfig.textColor = { 0, 255, 150, 255 }; // Green accent
+			logoTextConfig.textColor = { 0, 255, 150, 255 };
 			logoTextConfig.fontId = 0;
 			logoTextConfig.fontSize = 14;
 			clayMan_->textElement("Pulse", logoTextConfig);
-		});
-		
+			});
+
 		// Navigation Buttons
 		RenderNavButton("CPU", Screen::Performance, (currentScreen_ == Screen::Performance));
 		RenderNavButton("PROC", Screen::Processes, (currentScreen_ == Screen::Processes));
 		RenderNavButton("NET", Screen::Network, (currentScreen_ == Screen::Network));
 		RenderNavButton("ALERT", Screen::Alerts, (currentScreen_ == Screen::Alerts));
-	});
+		});
 }
 
 void Application::RenderNavButton(const std::string& label, Screen screen, bool isActive)
 {
+	std::string buttonId = "nav_" + label;
+
 	Clay_ElementDeclaration buttonConfig = {};
 	buttonConfig.layout.sizing = clayMan_->expandXfixedY(40);
 	buttonConfig.layout.childAlignment = clayMan_->centerXY();
 	buttonConfig.layout.padding = clayMan_->padAll(4);
-	
-	// Different colors for active/inactive buttons
-	if (isActive) {
-		buttonConfig.backgroundColor = { 0, 255, 150, 60 }; // Green background for active
-	} else {
-		buttonConfig.backgroundColor = { 40, 40, 40, 255 }; // Dark gray for inactive
+
+	// Check for interaction
+	bool isHovered = clayMan_->pointerOver(buttonId);
+	bool isClicked = isHovered && clayMan_->mousePressed();
+
+	if (isClicked && !isActive) {
+		SwitchToScreen(screen);
 	}
-	
+
+	// Button styling
+	if (isActive) {
+		buttonConfig.backgroundColor = { 0, 255, 150, 60 };
+	}
+	else if (isHovered) {
+		buttonConfig.backgroundColor = { 60, 60, 60, 255 };
+	}
+	else {
+		buttonConfig.backgroundColor = { 40, 40, 40, 255 };
+	}
+
 	buttonConfig.cornerRadius = { 4, 4, 4, 4 };
-	
+
 	clayMan_->element(buttonConfig, [this, label, isActive]() {
 		Clay_TextElementConfig textConfig = {};
 		if (isActive) {
-			textConfig.textColor = { 0, 255, 150, 255 }; // Green text for active  
-		} else {
-			textConfig.textColor = { 200, 200, 200, 255 }; // Light gray for inactive
+			textConfig.textColor = { 0, 255, 150, 255 };
+		}
+		else {
+			textConfig.textColor = { 200, 200, 200, 255 };
 		}
 		textConfig.fontId = 0;
 		textConfig.fontSize = 10;
 		clayMan_->textElement(label, textConfig);
-	});
-	
-	// TODO: Add click handling when implementing mouse input
+		});
 }
 
 void Application::RenderMainContent()
 {
-	// Main content area - takes remaining space
 	Clay_ElementDeclaration contentConfig = {};
 	contentConfig.layout.sizing = clayMan_->expandXY();
-	contentConfig.layout.padding = clayMan_->padAll(16);
-	contentConfig.backgroundColor = { 25, 25, 25, 255 }; // Slightly lighter than sidebar
-	
+	contentConfig.backgroundColor = { 25, 25, 25, 255 };
+
 	clayMan_->element(contentConfig, [this]() {
-		// Render different screens based on current selection
-		switch (currentScreen_) {
-			case Screen::Performance:
-				RenderPerformanceScreen();
-				break;
-			case Screen::Processes:
-				RenderProcessesScreen();
-				break;
-			case Screen::Network:
-				RenderNetworkScreen();
-				break;
-			case Screen::Alerts:
-				RenderAlertsScreen();
-				break;
+		// Use modular screen system
+		auto screenIt = screens_.find(currentScreen_);
+		if (screenIt != screens_.end() && screenIt->second) {
+			const SystemState& systemState = dataCollector_->GetSystemState();
+			screenIt->second->Render(clayMan_.get(), systemState);
 		}
-	});
-}
+		else {
+			// Fallback for unimplemented screens
+			Clay_ElementDeclaration fallbackConfig = {};
+			fallbackConfig.layout.sizing = clayMan_->expandXY();
+			fallbackConfig.layout.childAlignment = clayMan_->centerXY();
 
-void Application::RenderPerformanceScreen()
-{
-	const SystemState& systemState = dataCollector_->GetSystemState();
-
-	// Header
-	Clay_ElementDeclaration headerConfig = {};
-	headerConfig.layout.sizing = clayMan_->expandXfixedY(40);
-	headerConfig.layout.childAlignment = clayMan_->centerXY();
-
-	clayMan_->element(headerConfig, [this, &systemState]() {
-		Clay_TextElementConfig headerTextConfig = {};
-		headerTextConfig.textColor = { 255, 255, 255, 255 };
-		headerTextConfig.fontId = 0;
-		headerTextConfig.fontSize = 18;
-
-		std::string headerText = "Performance - " + systemState.cpuName +
-			" (" + std::to_string(systemState.coreCount) + " cores)";
-		clayMan_->textElement(headerText, headerTextConfig);
-		});
-
-	// Main metrics area
-	Clay_ElementDeclaration metricsConfig = {};
-	metricsConfig.layout.sizing = clayMan_->expandXY();
-	metricsConfig.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
-	metricsConfig.layout.childGap = 20;
-	metricsConfig.layout.padding = clayMan_->padAll(20);
-
-	clayMan_->element(metricsConfig, [this, &systemState]() {
-		// CPU Usage
-		Clay_ElementDeclaration cpuConfig = {};
-		cpuConfig.layout.sizing = clayMan_->expandXfixedY(60);
-		cpuConfig.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
-		cpuConfig.layout.childGap = 20;
-		cpuConfig.layout.childAlignment = clayMan_->centerXY();
-		cpuConfig.backgroundColor = { 40, 40, 40, 255 };
-		cpuConfig.cornerRadius = { 8, 8, 8, 8 };
-		cpuConfig.layout.padding = clayMan_->padAll(16);
-
-		clayMan_->element(cpuConfig, [this, &systemState]() {
-			// CPU Label
-			Clay_ElementDeclaration labelConfig = {};
-			labelConfig.layout.sizing = clayMan_->expandYfixedX(100);
-			labelConfig.layout.childAlignment = clayMan_->centerXY();
-
-			clayMan_->element(labelConfig, [this]() {
+			clayMan_->element(fallbackConfig, [this]() {
 				Clay_TextElementConfig textConfig = {};
-				textConfig.textColor = { 255, 255, 255, 255 };
+				textConfig.textColor = { 150, 150, 150, 255 };
 				textConfig.fontId = 0;
 				textConfig.fontSize = 14;
-				clayMan_->textElement("CPU Usage", textConfig);
+				clayMan_->textElement("Screen not implemented yet", textConfig);
 				});
-
-			// CPU Value
-			Clay_ElementDeclaration valueConfig = {};
-			valueConfig.layout.sizing = clayMan_->expandXY();
-			valueConfig.layout.childAlignment = clayMan_->centerXY();
-
-			clayMan_->element(valueConfig, [this, &systemState]() {
-				Clay_TextElementConfig textConfig = {};
-				textConfig.textColor = { 0, 255, 150, 255 }; // Green
-				textConfig.fontId = 0;
-				textConfig.fontSize = 16;
-
-				std::string cpuText = FormatPercentage(systemState.cpuUsagePercent);
-				clayMan_->textElement(cpuText, textConfig);
-				});
-			});
-
-		// Memory Usage
-		Clay_ElementDeclaration memConfig = {};
-		memConfig.layout.sizing = clayMan_->expandXfixedY(60);
-		memConfig.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
-		memConfig.layout.childGap = 20;
-		memConfig.layout.childAlignment = clayMan_->centerXY();
-		memConfig.backgroundColor = { 40, 40, 40, 255 };
-		memConfig.cornerRadius = { 8, 8, 8, 8 };
-		memConfig.layout.padding = clayMan_->padAll(16);
-
-		clayMan_->element(memConfig, [this, &systemState]() {
-			// Memory Label
-			Clay_ElementDeclaration labelConfig = {};
-			labelConfig.layout.sizing = clayMan_->expandYfixedX(100);
-			labelConfig.layout.childAlignment = clayMan_->centerXY();
-
-			clayMan_->element(labelConfig, [this]() {
-				Clay_TextElementConfig textConfig = {};
-				textConfig.textColor = { 255, 255, 255, 255 };
-				textConfig.fontId = 0;
-				textConfig.fontSize = 14;
-				clayMan_->textElement("Memory", textConfig);
-				});
-
-			// Memory Value
-			Clay_ElementDeclaration valueConfig = {};
-			valueConfig.layout.sizing = clayMan_->expandXY();
-			valueConfig.layout.childAlignment = clayMan_->centerXY();
-
-			clayMan_->element(valueConfig, [this, &systemState]() {
-				Clay_TextElementConfig textConfig = {};
-				textConfig.textColor = { 100, 150, 255, 255 }; // Blue
-				textConfig.fontId = 0;
-				textConfig.fontSize = 16;
-
-				std::string memText = FormatBytes(systemState.usedRAMBytes) + " / " +
-					FormatBytes(systemState.totalRAMBytes) + " (" +
-					FormatPercentage(systemState.memoryUsagePercent) + ")";
-				clayMan_->textElement(memText, textConfig);
-				});
-			});
+		}
 		});
-}
-
-void Application::RenderProcessesScreen()
-{
-	// Header
-	Clay_ElementDeclaration headerConfig = {};
-	headerConfig.layout.sizing = clayMan_->expandXfixedY(40);
-	headerConfig.layout.childAlignment = clayMan_->centerXY();
-	
-	clayMan_->element(headerConfig, [this]() {
-		Clay_TextElementConfig headerTextConfig = {};
-		headerTextConfig.textColor = { 255, 255, 255, 255 };
-		headerTextConfig.fontId = 0;
-		headerTextConfig.fontSize = 20;
-		clayMan_->textElement("Process Manager", headerTextConfig);
-	});
-	
-	// Placeholder for process table
-	Clay_ElementDeclaration processAreaConfig = {};
-	processAreaConfig.layout.sizing = clayMan_->expandXY();
-	processAreaConfig.layout.childAlignment = clayMan_->centerXY();
-	
-	clayMan_->element(processAreaConfig, [this]() {
-		Clay_TextElementConfig placeholderConfig = {};
-		placeholderConfig.textColor = { 150, 150, 150, 255 };
-		placeholderConfig.fontId = 0;
-		placeholderConfig.fontSize = 14;
-		clayMan_->textElement("Process table will appear here", placeholderConfig);
-	});
-}
-
-void Application::RenderNetworkScreen()
-{
-	// Header
-	Clay_ElementDeclaration headerConfig = {};
-	headerConfig.layout.sizing = clayMan_->expandXfixedY(40);
-	headerConfig.layout.childAlignment = clayMan_->centerXY();
-	
-	clayMan_->element(headerConfig, [this]() {
-		Clay_TextElementConfig headerTextConfig = {};
-		headerTextConfig.textColor = { 255, 255, 255, 255 };
-		headerTextConfig.fontId = 0;
-		headerTextConfig.fontSize = 20;
-		clayMan_->textElement("Network Monitor", headerTextConfig);
-	});
-	
-	// Placeholder for network stats
-	Clay_ElementDeclaration networkAreaConfig = {};
-	networkAreaConfig.layout.sizing = clayMan_->expandXY();
-	networkAreaConfig.layout.childAlignment = clayMan_->centerXY();
-	
-	clayMan_->element(networkAreaConfig, [this]() {
-		Clay_TextElementConfig placeholderConfig = {};
-		placeholderConfig.textColor = { 150, 150, 150, 255 };
-		placeholderConfig.fontId = 0;
-		placeholderConfig.fontSize = 14;
-		clayMan_->textElement("Network statistics will appear here", placeholderConfig);
-	});
-}
-
-void Application::RenderAlertsScreen()
-{
-	// Header
-	Clay_ElementDeclaration headerConfig = {};
-	headerConfig.layout.sizing = clayMan_->expandXfixedY(40);
-	headerConfig.layout.childAlignment = clayMan_->centerXY();
-	
-	clayMan_->element(headerConfig, [this]() {
-		Clay_TextElementConfig headerTextConfig = {};
-		headerTextConfig.textColor = { 255, 255, 255, 255 };
-		headerTextConfig.fontId = 0;
-		headerTextConfig.fontSize = 20;
-		clayMan_->textElement("Alert Manager", headerTextConfig);
-	});
-	
-	// Placeholder for alerts
-	Clay_ElementDeclaration alertAreaConfig = {};
-	alertAreaConfig.layout.sizing = clayMan_->expandXY();
-	alertAreaConfig.layout.childAlignment = clayMan_->centerXY();
-	
-	clayMan_->element(alertAreaConfig, [this]() {
-		Clay_TextElementConfig placeholderConfig = {};
-		placeholderConfig.textColor = { 150, 150, 150, 255 };
-		placeholderConfig.fontId = 0;
-		placeholderConfig.fontSize = 14;
-		clayMan_->textElement("Alert rules and notifications will appear here", placeholderConfig);
-	});
 }
 
 void Application::SwitchToScreen(Screen screen)
@@ -425,39 +259,11 @@ void Application::SwitchToScreen(Screen screen)
 	currentScreen_ = screen;
 }
 
-std::string Application::FormatBytes(uint64_t bytes)
-{
-	std::ostringstream oss;
-	if (bytes >= 1024 * 1024 * 1024)
-	{
-		oss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / (1024 * 1024 * 1024)) << "GB";
-	}
-	else if (bytes >= 1024 * 1024)
-	{
-		oss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / (1024 * 1024)) << "MB";
-	}
-	else if (bytes >= 1024)
-	{
-		oss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / (1024)) << "KB";
-	}
-	else
-	{
-		oss << bytes << "B";
-	}
-	return oss.str();
-}
-
-std::string Application::FormatPercentage(float percentage)
-{
-	std::ostringstream oss;
-	oss << std::fixed << std::setprecision(1) << percentage << "%";
-	return oss.str();
-}
-
 void Application::Shutdown()
 {
-
+	screens_.clear();
 	clayMan_.reset();
+
 	if (bodyFont_)
 	{
 		TTF_CloseFont(bodyFont_);
@@ -476,6 +282,5 @@ void Application::Shutdown()
 
 	TTF_Quit();
 	SDL_Quit();
-
 	std::cout << "Pulse Application Shutdown Complete.\n";
 }
