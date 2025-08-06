@@ -1,4 +1,3 @@
-// Fixed C++ designated initializers for MSVC compatibility
 #define CLAY_IMPLEMENTATION
 #include "clay.h"
 #include "clayman.hpp"
@@ -16,7 +15,6 @@ ClayMan::ClayMan(
     if(windowHeight == 0){windowHeight = 1;}
     
     // MEMORY OPTIMIZATION: Use minimal Clay arena instead of default huge allocation
-    // For a simple text-based UI, we need much less than the default
     uint64_t clayRequiredMemory = 1024 * 1024 * 8; // 8MB instead of default ~64MB
     Clay_Arena clayMemory = Clay_CreateArenaWithCapacityAndMemory(clayRequiredMemory, malloc(clayRequiredMemory));
 

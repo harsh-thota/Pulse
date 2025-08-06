@@ -12,6 +12,13 @@ add_executable(pulse
 	external/clay/clayman.cpp
 	external/clay/clayman.hpp
 	external/clay/sdl2_font.hpp
+	src/core/ring_buffer.hpp
+	src/core/interfaces/i_system_monitor.hpp
+	src/core/interfaces/i_process_monitor.hpp
+	src/core/interfaces/i_network_monitor.hpp
+	src/platform/windows/windows_system_monitor.hpp
+	src/monitoring/data_collector.cpp
+	src/platform/windows/windows_system_monitor.cpp
 )
 
 # header files
