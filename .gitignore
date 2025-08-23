@@ -10,7 +10,9 @@
 # The 'cmake-build-*' pattern catches directories created by CLion.
 /build/
 /out/
+/dist
 /cmake-build-*/
+
 
 # CMake's cache files and internal directories
 CMakeCache.txt
@@ -34,6 +36,7 @@ Testing/
 *.user       # Visual Studio user files
 *.vcxproj.user
 *.sln.docstates
+*.zip
 
 CMakeSettings.json
 

@@ -48,7 +48,7 @@ bool Application::Initialize()
         return false;
     }
 
-    // Set minimum window size for better usability
+    // Keep window at a comfortable minimum size so layouts aren’t squished
     SDL_SetWindowMinimumSize(window_, 800, 600);
 
     renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -60,12 +60,12 @@ bool Application::Initialize()
         return false;
     }
 
-    // Enable linear texture filtering for smoother text scaling
+    // Turn on linear filtering so our text stays crisp when resized
     if (SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1") == SDL_FALSE) {
         std::cerr << "Warning: Linear texture filtering not enabled!" << std::endl;
     }
 
-    // Try to load font, fallback to system font if not found
+    // Try loading Roboto; if it’s missing, fall back to a Windows font so nothing breaks
     bodyFont_ = TTF_OpenFont("assets/fonts/Roboto-Regular.ttf", 12);
     if (!bodyFont_)
     {
@@ -150,7 +150,7 @@ void Application::Run()
         
         if (!running) break;
         
-        // Calculate deltaTime
+    // Figure out how long the last frame took (for smooth timing)
         LAST = NOW;
         NOW = SDL_GetPerformanceCounter();
         deltaTime = (double)((NOW - LAST) * 1000 / (double)SDL_GetPerformanceFrequency());
@@ -180,7 +180,7 @@ void Application::Render()
 {
     if (!clayMan_ || !dataCollector_) return;
     
-    // Modern dark background
+    // Paint the window black (perfect backdrop for our data)
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
     SDL_RenderClear(renderer_);
     
@@ -204,7 +204,7 @@ void Application::RenderUIElements()
 {
     const SystemState& systemState = dataCollector_->GetSystemState();
     
-    // Main UI layout container
+    // Main layout: sidebar on the left, content on the right
     Clay_ElementDeclaration appContainer = {};
     appContainer.layout.sizing = clayMan_->expandXY();
     appContainer.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
@@ -233,7 +233,7 @@ void Application::RenderModernSidebar()
     sidebar.backgroundColor = { 0, 0, 0, 255 }; // Darker sidebar
     
     clayMan_->element(sidebar, [this]() {
-        // Modern logo/brand section
+    // Up top: that little Pulsing P icon and the app name
         Clay_ElementDeclaration brandSection = {};
         brandSection.layout.sizing = clayMan_->expandXfixedY(80);
         brandSection.layout.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
@@ -277,13 +277,13 @@ void Application::RenderModernSidebar()
             });
         });
         
-        // Separator
+    // A neat dividing line to keep things organized
         Clay_ElementDeclaration separator = {};
         separator.layout.sizing = clayMan_->expandXfixedY(1);
         separator.backgroundColor = { 45, 45, 45, 255 };
         clayMan_->element(separator, []() {});
         
-        // Navigation section
+    // Here’s where you click to jump between different views
         Clay_ElementDeclaration navSection = {};
         navSection.layout.sizing = clayMan_->expandXY();
         navSection.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
@@ -302,13 +302,13 @@ void Application::RenderModernSidebar()
 void Application::RenderModernNavButton(const std::string& icon, const std::string& label, Screen screen, bool isActive)
 {
     Clay_ElementDeclaration button = {};
-    // Give button a unique ID so we can detect pointerOver
+    // Assign a unique ID so I can catch when you hover or click
     button.id = clayMan_->hashID(label);
     button.layout.sizing = clayMan_->expandXfixedY(48);
     button.layout.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
     button.layout.padding = clayMan_->padXY(16, 12);
     
-    // Modern button styling
+    // Style the button – active ones get a subtle green glow
     if (isActive) {
         button.backgroundColor = { 0, 255, 150, 25 }; // Subtle green background
         // Border configuration for Clay
@@ -320,7 +320,7 @@ void Application::RenderModernNavButton(const std::string& icon, const std::stri
     button.cornerRadius = { 12, 12, 12, 12 };
     
     clayMan_->element(button, [this, icon, label, screen, isActive]() {
-        // Only switch when hovering and clicking the button
+    // If you click this while hovering, we flip to that screen
         if (clayMan_->pointerOver(label) && clayMan_->mousePressed()) {
             SwitchToScreen(screen);
         }

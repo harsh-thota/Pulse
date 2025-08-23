@@ -1,3 +1,5 @@
+// ISystemMonitor: Defines the interface for collecting system metrics.
+// Implementations should talk to OS APIs and fill in ProcessInfo, NetworkStats, etc.
 #pragma once
 #include <string>
 #include <vector>
