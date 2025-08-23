@@ -1,286 +1,483 @@
 #include "clayman.hpp"
 #include "application.hpp"
-#include "clay_renderer_SDL2.c"
 #include "screens/performance_screen.hpp"
+#include "screens/processes_screen.hpp"
+#include "screens/network_screen.hpp"
+#include "screens/alerts_screen.hpp"
+#include "components/graph_component.hpp"
 #include <iostream>
+#include <sstream>
+#include <iomanip>
+#include "clay.h"
+#include <windows.h>
+
+// Clay SDL2 renderer function - defined in external file
+extern "C" {
+    extern Clay_Dimensions SDL2_MeasureText(Clay_StringSlice text, Clay_TextElementConfig *config, void *userData);
+    extern void Clay_SDL2_Render(SDL_Renderer *renderer, Clay_RenderCommandArray renderCommands, SDL2_Font *fonts);
+}
 
 static void HandleClayErrors(Clay_ErrorData errorData)
 {
-	std::cerr << "[Clay Error]: " << errorData.errorText.chars << "\n";
+    std::cerr << "[Clay Error]: " << errorData.errorText.chars << "\n";
 }
 
 bool Application::Initialize()
 {
-	if (SDL_Init(SDL_INIT_VIDEO) < 0)
-	{
-		std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError() << "\n";
-		return false;
-	}
+    if (SDL_Init(SDL_INIT_VIDEO) < 0)
+    {
+        std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError() << "\n";
+        return false;
+    }
 
-	if (TTF_Init() == -1)
-	{
-		std::cerr << "SDL_ttf could not initialize! TTF_Error: " << TTF_GetError() << "\n";
-		SDL_Quit();
-		return false;
-	}
+    if (TTF_Init() == -1)
+    {
+        std::cerr << "SDL_ttf could not initialize! TTF_Error: " << TTF_GetError() << "\n";
+        SDL_Quit();
+        return false;
+    }
 
-	window_ = SDL_CreateWindow("Pulse", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
-	if (!window_)
-	{
-		std::cerr << "Window could not be created! SDL_Error: " << SDL_GetError() << "\n";
-		TTF_Quit(); SDL_Quit();
-		return false;
-	}
+    window_ = SDL_CreateWindow("Pulse - System Monitor", 
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
+        1200, 800, 
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    if (!window_)
+    {
+        std::cerr << "Window could not be created! SDL_Error: " << SDL_GetError() << "\n";
+        TTF_Quit(); SDL_Quit();
+        return false;
+    }
 
-	renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_SOFTWARE);
-	if (!renderer_)
-	{
-		std::cerr << "Renderer could not be created! SDL_Error: " << SDL_GetError() << "\n";
-		SDL_DestroyWindow(window_);
-		TTF_Quit(); SDL_Quit();
-		return false;
-	}
+    // Set minimum window size for better usability
+    SDL_SetWindowMinimumSize(window_, 800, 600);
 
-	bodyFont_ = TTF_OpenFont("assets/fonts/Roboto-Regular.ttf", 12);
-	if (!bodyFont_)
-	{
-		std::cerr << "Failed to load font! TTF_Error: " << TTF_GetError() << "\n";
-		return false;
-	}
+    renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer_)
+    {
+        std::cerr << "Renderer could not be created! SDL_Error: " << SDL_GetError() << "\n";
+        SDL_DestroyWindow(window_);
+        TTF_Quit(); SDL_Quit();
+        return false;
+    }
 
-	fonts_[0] = { 0, bodyFont_ };
+    // Enable linear texture filtering for smoother text scaling
+    if (SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1") == SDL_FALSE) {
+        std::cerr << "Warning: Linear texture filtering not enabled!" << std::endl;
+    }
 
-	int w, h;
-	SDL_GetWindowSize(window_, &w, &h);
-	clayMan_ = std::make_unique<ClayMan>(w, h, SDL2_MeasureText, fonts_);
+    // Try to load font, fallback to system font if not found
+    bodyFont_ = TTF_OpenFont("assets/fonts/Roboto-Regular.ttf", 12);
+    if (!bodyFont_)
+    {
+        std::cerr << "Failed to load custom font, trying system font...\n";
+        // Try common Windows system fonts as fallback
+        bodyFont_ = TTF_OpenFont("C:/Windows/Fonts/arial.ttf", 12);
+        if (!bodyFont_)
+        {
+            bodyFont_ = TTF_OpenFont("C:/Windows/Fonts/segoeui.ttf", 12);
+            if (!bodyFont_)
+            {
+                std::cerr << "Failed to load any fonts! TTF_Error: " << TTF_GetError() << "\n";
+                std::cerr << "Please download Roboto font and place it in assets/fonts/Roboto-Regular.ttf\n";
+                return false;
+            }
+        }
+        std::cout << "Using system font as fallback\n";
+    }
 
-	dataCollector_ = std::make_unique<DataCollector>();
-	if (!dataCollector_->Initialize())
-	{
-		std::cerr << "Failed to initialize system monitor\n";
-		return false;
-	}
+    fonts_[0] = { 0, bodyFont_ };
 
-	// Initialize modular screens
-	screens_[Screen::Performance] = std::make_unique<PerformanceScreen>();
-	// TODO: Add other screens when implemented
-	// screens_[Screen::Processes] = std::make_unique<ProcessesScreen>();
-	// screens_[Screen::Network] = std::make_unique<NetworkScreen>();
-	// screens_[Screen::Alerts] = std::make_unique<AlertsScreen>();
+    int w, h;
+    SDL_GetWindowSize(window_, &w, &h);
+    clayMan_ = std::make_unique<ClayMan>(w, h, SDL2_MeasureText, fonts_);
 
-	std::cout << "Pulse Initialized - Optimized for low memory usage\n";
-	return true;
+    dataCollector_ = std::make_unique<DataCollector>();
+    if (!dataCollector_->Initialize())
+    {
+        std::cerr << "Failed to initialize system monitor\n";
+        return false;
+    }
+
+    // Initialize modular screens
+    screens_[Screen::Performance] = std::make_unique<PerformanceScreen>();
+    screens_[Screen::Processes] = std::make_unique<ProcessesScreen>();
+    screens_[Screen::Network] = std::make_unique<NetworkScreen>();
+    screens_[Screen::Alerts] = std::make_unique<AlertsScreen>();
+
+    std::cout << "Pulse Initialized - All screens loaded successfully\n";
+    return true;
 }
 
 void Application::Run()
 {
-	bool running = true;
-	SDL_Event event;
+    bool running = true;
+    SDL_Event event;
+    
+    Uint64 NOW = SDL_GetPerformanceCounter();
+    Uint64 LAST = 0;
+    double deltaTime = 0;
 
-	while (running)
-	{
-		int mouseX = 0, mouseY = 0;
-		bool mousePressed = false;
-		Clay_Vector2 scroll = {};
+    while (running)
+    {
+        int mouseX = 0, mouseY = 0;
+        bool mousePressed = false;
+        Clay_Vector2 scrollDelta = {};
 
-		SDL_GetMouseState(&mouseX, &mouseY);
+        SDL_GetMouseState(&mouseX, &mouseY);
 
-		while (SDL_PollEvent(&event))
-		{
-			if (event.type == SDL_QUIT) {
-				running = false;
-			}
-			else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED)
-			{
-				int width, height;
-				SDL_GetWindowSize(window_, &width, &height);
-			}
-			else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
-			{
-				mousePressed = true;
-			}
-			else if (event.type == SDL_MOUSEWHEEL)
-			{
-				scroll.y = static_cast<float>(event.wheel.y) * 20.0f;
-			}
-		}
+        while (SDL_PollEvent(&event))
+        {
+            if (event.type == SDL_QUIT) {
+                running = false;
+            }
+            else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED)
+            {
+                int width, height;
+                SDL_GetWindowSize(window_, &width, &height);
+                // Handle window resize properly
+            }
+            else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
+            {
+                mousePressed = true;
+            }
+            else if (event.type == SDL_MOUSEWHEEL)
+            {
+                // Improved scroll handling for vertical scrolling
+                scrollDelta.x = static_cast<float>(event.wheel.x * 30); // Horizontal scroll
+                scrollDelta.y = static_cast<float>(event.wheel.y * 30); // Vertical scroll (more responsive)
+            }
+        }
+        
+        if (!running) break;
+        
+        // Calculate deltaTime
+        LAST = NOW;
+        NOW = SDL_GetPerformanceCounter();
+        deltaTime = (double)((NOW - LAST) * 1000 / (double)SDL_GetPerformanceFrequency());
 
-		int width, height;
-		SDL_GetWindowSize(window_, &width, &height);
-		clayMan_->updateClayState(width, height, static_cast<float>(mouseX), static_cast<float>(mouseY),
-			scroll.x, scroll.y, 0.016f, mousePressed);
+        int width, height;
+        SDL_GetWindowSize(window_, &width, &height);
+        clayMan_->updateClayState(width, height, 
+            static_cast<float>(mouseX), static_cast<float>(mouseY),
+            scrollDelta.x, scrollDelta.y, 
+            static_cast<float>(deltaTime), mousePressed);
 
-		Update();
-		Render();
-		SDL_Delay(16);
-	}
+        Update();
+        Render();
+        SDL_Delay(16); // ~60 FPS
+    }
 }
 
 void Application::Update()
 {
-	if (dataCollector_)
-	{
-		dataCollector_->Update();
-	}
+    if (dataCollector_)
+    {
+        dataCollector_->Update();
+    }
 }
 
 void Application::Render()
 {
-	SDL_SetRenderDrawColor(renderer_, 20, 20, 20, 255);
-	SDL_RenderClear(renderer_);
+    if (!clayMan_ || !dataCollector_) return;
+    
+    // Modern dark background
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+    SDL_RenderClear(renderer_);
+    
+    // Get Clay render commands and render them
+    clayMan_->beginLayout();
+    
+    // Render the UI elements
+    RenderUIElements();
+    
+    Clay_RenderCommandArray renderCommands = clayMan_->endLayout();
+    Clay_SDL2_Render(renderer_, renderCommands, fonts_);
+    
+    SDL_RenderPresent(renderer_);
+    // Trim working set to minimize memory footprint in Task Manager
+#ifdef _WIN32
+    SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
+#endif
+}
 
-	clayMan_->beginLayout();
-	RenderUI();
-	Clay_RenderCommandArray clayCommands = clayMan_->endLayout();
-
-	Clay_SDL2_Render(renderer_, clayCommands, fonts_);
-	SDL_RenderPresent(renderer_);
+void Application::RenderUIElements()
+{
+    const SystemState& systemState = dataCollector_->GetSystemState();
+    
+    // Main UI layout container
+    Clay_ElementDeclaration appContainer = {};
+    appContainer.layout.sizing = clayMan_->expandXY();
+    appContainer.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
+    
+    clayMan_->element(appContainer, [this, &systemState]() {
+        RenderModernSidebar();
+        RenderScrollableMainContent();
+    });
 }
 
 void Application::RenderUI()
 {
-	Clay_ElementDeclaration rootConfig = {};
-	rootConfig.layout.sizing = clayMan_->expandXY();
-	rootConfig.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
-
-	clayMan_->element(rootConfig, [this]() {
-		RenderSidebar();
-		RenderMainContent();
-		});
+    // This method is now just for compatibility
+    // The actual rendering is handled in the Render() method
 }
 
-void Application::RenderSidebar()
+void Application::RenderModernSidebar()
 {
-	Clay_ElementDeclaration sidebarConfig = {};
-	sidebarConfig.layout.sizing = clayMan_->expandYfixedX(80);
-	sidebarConfig.layout.padding = clayMan_->padAll(8);
-	sidebarConfig.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
-	sidebarConfig.layout.childGap = 8;
-	sidebarConfig.backgroundColor = { 15, 15, 15, 255 };
-
-	clayMan_->element(sidebarConfig, [this]() {
-		// Pulse Logo
-		Clay_ElementDeclaration logoConfig = {};
-		logoConfig.layout.sizing = clayMan_->expandXfixedY(50);
-		logoConfig.layout.childAlignment = clayMan_->centerXY();
-
-		clayMan_->element(logoConfig, [this]() {
-			Clay_TextElementConfig logoTextConfig = {};
-			logoTextConfig.textColor = { 0, 255, 150, 255 };
-			logoTextConfig.fontId = 0;
-			logoTextConfig.fontSize = 14;
-			clayMan_->textElement("Pulse", logoTextConfig);
-			});
-
-		// Navigation Buttons
-		RenderNavButton("CPU", Screen::Performance, (currentScreen_ == Screen::Performance));
-		RenderNavButton("PROC", Screen::Processes, (currentScreen_ == Screen::Processes));
-		RenderNavButton("NET", Screen::Network, (currentScreen_ == Screen::Network));
-		RenderNavButton("ALERT", Screen::Alerts, (currentScreen_ == Screen::Alerts));
-		});
+    uint32_t sidebarWidth = 240;
+    
+    Clay_ElementDeclaration sidebar = {};
+    sidebar.layout.sizing = clayMan_->fixedSize(sidebarWidth, clayMan_->getWindowHeight());
+    sidebar.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+    sidebar.layout.padding = clayMan_->padAll(20);
+    sidebar.layout.childGap = 12;
+    sidebar.backgroundColor = { 0, 0, 0, 255 }; // Darker sidebar
+    
+    clayMan_->element(sidebar, [this]() {
+        // Modern logo/brand section
+        Clay_ElementDeclaration brandSection = {};
+        brandSection.layout.sizing = clayMan_->expandXfixedY(80);
+        brandSection.layout.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+        brandSection.layout.padding = clayMan_->padXY(8, 16);
+        
+        clayMan_->element(brandSection, [this]() {
+            Clay_ElementDeclaration brandContainer = {};
+            brandContainer.layout.sizing = clayMan_->expandXY();
+            brandContainer.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
+            brandContainer.layout.childGap = 12;
+            brandContainer.layout.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+            
+            clayMan_->element(brandContainer, [this]() {
+                // Icon/Logo
+                Clay_ElementDeclaration iconContainer = {};
+                iconContainer.layout.sizing = clayMan_->fixedSize(40, 40);
+                iconContainer.backgroundColor = { 0, 255, 150, 255 }; // Brand green
+                iconContainer.cornerRadius = { 8, 8, 8, 8 };
+                iconContainer.layout.childAlignment = clayMan_->centerXY();
+                
+                clayMan_->element(iconContainer, [this]() {
+                    Clay_TextElementConfig iconText = {};
+                    iconText.textColor = { 25, 25, 25, 255 };
+                    iconText.fontId = 0;
+                    iconText.fontSize = 20;
+                    clayMan_->textElement("P", iconText);
+                });
+                
+                // Brand name
+                Clay_ElementDeclaration nameContainer = {};
+                nameContainer.layout.sizing = clayMan_->expandXY();
+                nameContainer.layout.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+                
+                clayMan_->element(nameContainer, [this]() {
+                    Clay_TextElementConfig brandText = {};
+                    brandText.textColor = { 240, 240, 240, 255 };
+                    brandText.fontId = 0;
+                    brandText.fontSize = 22;
+                    clayMan_->textElement("Pulse", brandText);
+                });
+            });
+        });
+        
+        // Separator
+        Clay_ElementDeclaration separator = {};
+        separator.layout.sizing = clayMan_->expandXfixedY(1);
+        separator.backgroundColor = { 45, 45, 45, 255 };
+        clayMan_->element(separator, []() {});
+        
+        // Navigation section
+        Clay_ElementDeclaration navSection = {};
+        navSection.layout.sizing = clayMan_->expandXY();
+        navSection.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+        navSection.layout.childGap = 8;
+        navSection.layout.padding = clayMan_->padY(16);
+        
+        clayMan_->element(navSection, [this]() {
+        RenderModernNavButton("", "Performance", Screen::Performance, currentScreen_ == Screen::Performance);
+        RenderModernNavButton("", "Processes", Screen::Processes, currentScreen_ == Screen::Processes);
+        RenderModernNavButton("", "Network", Screen::Network, currentScreen_ == Screen::Network);
+        RenderModernNavButton("", "Alerts", Screen::Alerts, currentScreen_ == Screen::Alerts);
+        });
+    });
 }
 
-void Application::RenderNavButton(const std::string& label, Screen screen, bool isActive)
+void Application::RenderModernNavButton(const std::string& icon, const std::string& label, Screen screen, bool isActive)
 {
-	std::string buttonId = "nav_" + label;
+    Clay_ElementDeclaration button = {};
+    // Give button a unique ID so we can detect pointerOver
+    button.id = clayMan_->hashID(label);
+    button.layout.sizing = clayMan_->expandXfixedY(48);
+    button.layout.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+    button.layout.padding = clayMan_->padXY(16, 12);
+    
+    // Modern button styling
+    if (isActive) {
+        button.backgroundColor = { 0, 255, 150, 25 }; // Subtle green background
+        // Border configuration for Clay
+        button.border.width = {1, 1, 1, 1}; // All sides 1 pixel
+        button.border.color = { 0, 255, 150, 100 };
+    } else {
+        button.backgroundColor = { 35, 35, 35, 255 };
+    }
+    button.cornerRadius = { 12, 12, 12, 12 };
+    
+    clayMan_->element(button, [this, icon, label, screen, isActive]() {
+        // Only switch when hovering and clicking the button
+        if (clayMan_->pointerOver(label) && clayMan_->mousePressed()) {
+            SwitchToScreen(screen);
+        }
+        
+        Clay_ElementDeclaration content = {};
+        content.layout.sizing = clayMan_->expandXY();
+        content.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
+        content.layout.childGap = 16;
+        content.layout.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+        
+    clayMan_->element(content, [this, icon, label, screen, isActive]() {
+            // Icon
+            Clay_ElementDeclaration iconContainer = {};
+            iconContainer.layout.sizing = clayMan_->fixedSize(24, 24);
+            iconContainer.layout.childAlignment = clayMan_->centerXY();
+            
+            clayMan_->element(iconContainer, [this, &icon, isActive]() {
+                Clay_TextElementConfig iconText = {};
+                iconText.textColor = isActive ? 
+                    Clay_Color{ 0, 255, 150, 255 } : Clay_Color{ 180, 180, 180, 255 };
+                iconText.fontId = 0;
+                iconText.fontSize = 16;
+                clayMan_->textElement(icon, iconText);
+            });
+            
+            // Label
+            Clay_ElementDeclaration labelContainer = {};
+            // Clip text to container width to avoid overflow
+            labelContainer.clip.horizontal = true;
+            labelContainer.clip.vertical = false;
+            labelContainer.layout.sizing = clayMan_->expandXY();
+            labelContainer.layout.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+            
+            clayMan_->element(labelContainer, [this, &label, isActive]() {
+                Clay_TextElementConfig labelText = {};
+                labelText.textColor = isActive ? 
+                    Clay_Color{ 240, 240, 240, 255 } : Clay_Color{ 160, 160, 160, 255 };
+                labelText.fontId = 0;
+                labelText.fontSize = 14;
+                clayMan_->textElement(label, labelText);
+            });
+        });
+    });
+}
 
-	Clay_ElementDeclaration buttonConfig = {};
-	buttonConfig.layout.sizing = clayMan_->expandXfixedY(40);
-	buttonConfig.layout.childAlignment = clayMan_->centerXY();
-	buttonConfig.layout.padding = clayMan_->padAll(4);
-
-	// Check for interaction
-	bool isHovered = clayMan_->pointerOver(buttonId);
-	bool isClicked = isHovered && clayMan_->mousePressed();
-
-	if (isClicked && !isActive) {
-		SwitchToScreen(screen);
-	}
-
-	// Button styling
-	if (isActive) {
-		buttonConfig.backgroundColor = { 0, 255, 150, 60 };
-	}
-	else if (isHovered) {
-		buttonConfig.backgroundColor = { 60, 60, 60, 255 };
-	}
-	else {
-		buttonConfig.backgroundColor = { 40, 40, 40, 255 };
-	}
-
-	buttonConfig.cornerRadius = { 4, 4, 4, 4 };
-
-	clayMan_->element(buttonConfig, [this, label, isActive]() {
-		Clay_TextElementConfig textConfig = {};
-		if (isActive) {
-			textConfig.textColor = { 0, 255, 150, 255 };
-		}
-		else {
-			textConfig.textColor = { 200, 200, 200, 255 };
-		}
-		textConfig.fontId = 0;
-		textConfig.fontSize = 10;
-		clayMan_->textElement(label, textConfig);
-		});
+void Application::RenderScrollableMainContent()
+{
+    const SystemState& systemState = dataCollector_->GetSystemState();
+    uint32_t sidebarWidth = 240;
+    
+    Clay_ElementDeclaration mainContent = {};
+    mainContent.layout.sizing = clayMan_->fixedSize(clayMan_->getWindowWidth() - sidebarWidth, clayMan_->getWindowHeight());
+    mainContent.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+    mainContent.backgroundColor = { 0, 0, 0, 255 };
+    
+    clayMan_->element(mainContent, [this, &systemState]() {
+        // Create scrollable container with proper configuration
+    Clay_ElementDeclaration scrollContainer = {};
+    scrollContainer.layout.sizing = clayMan_->expandXY();
+    scrollContainer.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+    scrollContainer.layout.padding = clayMan_->padAll(24);
+    scrollContainer.layout.childGap = 20;
+    // Clip contents to the scroll container bounds
+    scrollContainer.clip.horizontal = true;
+    scrollContainer.clip.vertical = true;
+        
+        clayMan_->element(scrollContainer, [this, &systemState]() {
+            // Render current screen content
+            if (screens_.find(currentScreen_) != screens_.end()) {
+                screens_[currentScreen_]->Render(clayMan_.get(), systemState);
+            }
+            
+            // Add bottom spacer for better scrolling
+            Clay_ElementDeclaration bottomSpacer = {};
+            bottomSpacer.layout.sizing = clayMan_->expandXfixedY(100);
+            clayMan_->element(bottomSpacer, []() {});
+        });
+    });
 }
 
 void Application::RenderMainContent()
 {
-	Clay_ElementDeclaration contentConfig = {};
-	contentConfig.layout.sizing = clayMan_->expandXY();
-	contentConfig.backgroundColor = { 25, 25, 25, 255 };
+    // Use the new scrollable version
+    RenderScrollableMainContent();
+}
 
-	clayMan_->element(contentConfig, [this]() {
-		// Use modular screen system
-		auto screenIt = screens_.find(currentScreen_);
-		if (screenIt != screens_.end() && screenIt->second) {
-			const SystemState& systemState = dataCollector_->GetSystemState();
-			screenIt->second->Render(clayMan_.get(), systemState);
-		}
-		else {
-			// Fallback for unimplemented screens
-			Clay_ElementDeclaration fallbackConfig = {};
-			fallbackConfig.layout.sizing = clayMan_->expandXY();
-			fallbackConfig.layout.childAlignment = clayMan_->centerXY();
+void Application::RenderNavButton(const std::string& icon, Screen screen, bool isActive)
+{
+    // Use the new modern version
+    std::string label;
+    switch (screen) {
+        case Screen::Performance: label = "Performance"; break;
+        case Screen::Processes: label = "Processes"; break;
+        case Screen::Network: label = "Network"; break;
+        case Screen::Alerts: label = "Alerts"; break;
+    }
+    RenderModernNavButton(icon, label, screen, isActive);
+}
 
-			clayMan_->element(fallbackConfig, [this]() {
-				Clay_TextElementConfig textConfig = {};
-				textConfig.textColor = { 150, 150, 150, 255 };
-				textConfig.fontId = 0;
-				textConfig.fontSize = 14;
-				clayMan_->textElement("Screen not implemented yet", textConfig);
-				});
-		}
-		});
+void Application::RenderSidebar()
+{
+    // Use the new modern version
+    RenderModernSidebar();
 }
 
 void Application::SwitchToScreen(Screen screen)
 {
-	currentScreen_ = screen;
+    currentScreen_ = screen;
 }
 
 void Application::Shutdown()
 {
-	screens_.clear();
-	clayMan_.reset();
+    dataCollector_.reset();
+    clayMan_.reset();
+    
+    if (bodyFont_)
+    {
+        TTF_CloseFont(bodyFont_);
+        bodyFont_ = nullptr;
+    }
+    
+    if (renderer_)
+    {
+        SDL_DestroyRenderer(renderer_);
+        renderer_ = nullptr;
+    }
+    
+    if (window_)
+    {
+        SDL_DestroyWindow(window_);
+        window_ = nullptr;
+    }
+    
+    TTF_Quit();
+    SDL_Quit();
+}
 
-	if (bodyFont_)
-	{
-		TTF_CloseFont(bodyFont_);
-		bodyFont_ = nullptr;
-	}
-	if (renderer_)
-	{
-		SDL_DestroyRenderer(renderer_);
-		renderer_ = nullptr;
-	}
-	if (window_)
-	{
-		SDL_DestroyWindow(window_);
-		window_ = nullptr;
-	}
+std::string Application::FormatBytes(uint64_t bytes)
+{
+    std::ostringstream oss;
+    if (bytes >= 1024ULL * 1024 * 1024 * 1024) {
+        oss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / (1024ULL * 1024 * 1024 * 1024)) << "TB";
+    } else if (bytes >= 1024ULL * 1024 * 1024) {
+        oss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / (1024ULL * 1024 * 1024)) << "GB";
+    } else if (bytes >= 1024ULL * 1024) {
+        oss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / (1024ULL * 1024)) << "MB";
+    } else if (bytes >= 1024ULL) {
+        oss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / 1024ULL) << "KB";
+    } else {
+        oss << bytes << "B";
+    }
+    return oss.str();
+}
 
-	TTF_Quit();
-	SDL_Quit();
-	std::cout << "Pulse Application Shutdown Complete.\n";
+std::string Application::FormatPercentage(float percentage)
+{
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1) << percentage << "%";
+    return oss.str();
 }

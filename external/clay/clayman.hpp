@@ -62,7 +62,12 @@ class ClayMan {
         ClayMan(const ClayMan &clayMan);
 
         //Deconstructor
-        ~ClayMan(){}
+            ~ClayMan(){
+                if(clayMemoryBuffer_) {
+                    free(clayMemoryBuffer_);
+                    clayMemoryBuffer_ = nullptr;
+                }
+            }
 
         //Takes mouse, window, and time information and passes it to Clay context
         void updateClayState(
@@ -264,6 +269,7 @@ class ClayMan {
         void resetStringArenaIndex() {
             nextStringArenaIndex = 0;
         }
+        void* clayMemoryBuffer_;   
         
         //Caches strings into string arena
         const char* insertStringIntoArena(const std::string& str) {

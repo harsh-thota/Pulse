@@ -4,10 +4,15 @@
 
 void BaseScreen::Render(ClayMan* clayMan, const SystemState& systemState)
 {
-	LayoutComponents::RenderScrollableContainer(clayMan, [this, clayMan, &systemState]()
-		{
+	// Simple container - scrolling is handled by the main content area in Application
+	Clay_ElementDeclaration contentContainer = {};
+		contentContainer.layout.sizing = clayMan->expandXY(); // Fill width and allow vertical growth
+	contentContainer.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+	contentContainer.layout.childGap = GetSectionGap();
+	
+	clayMan->element(contentContainer, [this, clayMan, &systemState]() {
 		RenderContent(clayMan, systemState);
-	}, GetScrollPadding(), GetSectionGap());
+	});
 }
 
 std::string BaseScreen::FormatBytes(uint64_t bytes)

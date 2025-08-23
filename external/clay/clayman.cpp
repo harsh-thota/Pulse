@@ -14,15 +14,21 @@ ClayMan::ClayMan(
     if(windowWidth == 0){windowWidth = 1;}
     if(windowHeight == 0){windowHeight = 1;}
     
-    // MEMORY OPTIMIZATION: Use minimal Clay arena instead of default huge allocation
-    uint64_t clayRequiredMemory = 1024 * 1024 * 8; // 8MB instead of default ~64MB
+    // Calculate proper memory requirements for Clay
+    // Allocate only the minimum required memory for Clay to reduce footprint
+    uint64_t clayRequiredMemory = Clay_MinMemorySize();
+    
     Clay_Arena clayMemory = Clay_CreateArenaWithCapacityAndMemory(clayRequiredMemory, malloc(clayRequiredMemory));
 
     Clay_Dimensions dimensions = {};
     dimensions.width = (float)windowWidth;
     dimensions.height = (float)windowHeight;
 
-    Clay_Initialize(clayMemory, dimensions, (Clay_ErrorHandler) handleErrors);
+    Clay_ErrorHandler errorHandler = {};
+    errorHandler.errorHandlerFunction = handleErrors;
+    errorHandler.userData = nullptr;
+
+    Clay_Initialize(clayMemory, dimensions, errorHandler);
 
     Clay_SetMeasureTextFunction(measureTextFunction, measureTextUserData);
 

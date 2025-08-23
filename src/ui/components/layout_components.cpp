@@ -23,17 +23,28 @@ void LayoutComponents::RenderTwoColumnLayout(ClayMan *clayMan, std::function<voi
 
 void LayoutComponents::RenderScrollableContainer(ClayMan* clayMan, std::function<void()> content, uint32_t padding, uint32_t childGap)
 {
+	// Create scrollable container with proper scroll configuration
 	Clay_ElementDeclaration scrollContainer = {};
 	scrollContainer.layout.sizing = clayMan->expandXY();
 	scrollContainer.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
-	scrollContainer.layout.padding = clayMan->padAll(padding);
+	
+	// Note: Clay scrolling is handled by parent containers in application.cpp
+	// This container just provides the layout structure
+	
+	if (padding > 0) {
+		scrollContainer.layout.padding = clayMan->padAll(padding);
+	}
 
 	clayMan->element(scrollContainer, [clayMan, content, childGap]()
 		{
 			Clay_ElementDeclaration contentContainer = {};
-			contentContainer.layout.sizing = clayMan->expandXY();
+			contentContainer.layout.sizing = clayMan->expandX(); // Allow vertical growth for scrolling
 			contentContainer.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
-			contentContainer.layout.childGap = childGap;
+			
+			if (childGap > 0) {
+				contentContainer.layout.childGap = childGap;
+			}
+			
 			clayMan->element(contentContainer, content);
 		});
 }

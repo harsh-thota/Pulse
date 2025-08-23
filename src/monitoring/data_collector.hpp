@@ -22,4 +22,6 @@ private:
 	std::chrono::steady_clock::time_point lastUpdate_;
 
 	void UpdateSystemMetrics();
+	void UpdateAlerts();
+	void InitializeDefaultAlertRules();
 };

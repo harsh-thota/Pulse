@@ -9,6 +9,12 @@
 #include <string>
 #include <unordered_map>
 
+// Forward declaration for Clay integration
+extern "C" {
+    Clay_Dimensions SDL2_MeasureText(Clay_StringSlice text, Clay_TextElementConfig *config, void *userData);
+    void Clay_SDL2_Render(SDL_Renderer *renderer, Clay_RenderCommandArray renderCommands, SDL2_Font *fonts);
+}
+
 enum class Screen {
 	Performance,
 	Processes, 
@@ -25,18 +31,22 @@ public:
 
 	static std::string FormatBytes(uint64_t bytes);
 	static std::string FormatPercentage(float percentage);
+
 private:
 	void Update();
 	void Render();
 	void RenderUI();
+	void RenderUIElements();
+	
+	// Modern UI methods
+	void RenderModernSidebar();
+	void RenderScrollableMainContent();
+	void RenderModernNavButton(const std::string& icon, const std::string& label, Screen screen, bool isActive);
+	
+	// Legacy methods for compatibility
 	void RenderSidebar();
 	void RenderMainContent();
-	void RenderNavButton(const std::string& label, Screen screen, bool isActive);
-	
-	//void RenderPerformanceScreen();
-	//void RenderProcessesScreen();
-	//void RenderNetworkScreen();
-	//void RenderAlertsScreen();
+	void RenderNavButton(const std::string& icon, Screen screen, bool isActive);
 	
 	Screen currentScreen_ = Screen::Performance;
 	void SwitchToScreen(Screen screen);
